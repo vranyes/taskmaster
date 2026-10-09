@@ -52,6 +52,35 @@ Voice model → `perform_task({task})` → taskmaster → downstream model
   blocks instead of prompting. Public route stays gated until
   the handler enforces auth.
 
+## Cross-user isolation (decided)
+
+Identity comes from exactly one source: the verified edge JWT.
+Never from model input or task text (add a test: task naming
+another user still executes as the JWT subject).
+
+- Enrollment: Kanidm login (who) + Telnyx OTP, single-use,
+  expiring, hashed, rate-limited (proves number ownership;
+  claiming without it discloses victims' data to callers).
+  Pasted key owner is opaque but self-harm only: holding a key
+  already grants direct access. Optional: owner==session check
+  if LibreChat exposes a key-authenticated me route.
+- Admission: caller ID is assertable/spoofable. PIN-gate
+  `perform_task` (VOICE_PIN precedent exists); check Telnyx
+  STIR/SHAKEN attestation where available. Unknown number → deny.
+- Tokens: verify signature/aud/exp; bind jti to call_id,
+  single-use. Model sees no credentials, ever.
+- Keys: AES-GCM at rest under sealed DEK; decrypt in taskmaster
+  memory only; never logged; resolve API serves key material to
+  taskmaster identity only, user-id to edge only.
+- LibreChat scoping is server-side (agent visibility, tool
+  grants, per-user OAuth tools resolve to key owner). Verify
+  agent memory is strictly per-user. Fresh conversation per
+  call; never reuse threads across calls/users.
+- Revocation (key deleted / enrollment removed / Kanidm
+  disabled) fails the next call closed with a re-enroll message.
+  Keep resolve cache TTL short so it bites promptly.
+- Logs: user-id hash only. No raw phones, keys, OTPs, content.
+
 ## Build
 
 1. Validation + caps. (done)
