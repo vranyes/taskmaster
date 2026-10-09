@@ -20,6 +20,9 @@ func TestLoadConfig_ReadsEnv(t *testing.T) {
 	t.Setenv("TASKMASTER_MODEL", "home-model")
 	t.Setenv("TASKMASTER_API_KEY", "secret")
 	t.Setenv("TASKMASTER_ADDR", ":9090")
+	t.Setenv("TASKMASTER_EDGE_SECRET", "edge-hmac")
+	t.Setenv("TASKMASTER_DIRECTORY_URL", "http://dir:8082")
+	t.Setenv("TASKMASTER_RESOLVE_SECRET", "dir-secret")
 	cfg := LoadConfig()
 	if cfg.BaseURL != "https://home.example.com/v1" {
 		t.Fatalf("unexpected base url: %q", cfg.BaseURL)
@@ -32,5 +35,14 @@ func TestLoadConfig_ReadsEnv(t *testing.T) {
 	}
 	if cfg.Addr != ":9090" {
 		t.Fatalf("unexpected addr: %q", cfg.Addr)
+	}
+	if cfg.EdgeSecret != "edge-hmac" {
+		t.Fatalf("unexpected edge secret: %q", cfg.EdgeSecret)
+	}
+	if cfg.DirectoryURL != "http://dir:8082" {
+		t.Fatalf("unexpected directory url: %q", cfg.DirectoryURL)
+	}
+	if cfg.ResolveSecret != "dir-secret" {
+		t.Fatalf("unexpected resolve secret: %q", cfg.ResolveSecret)
 	}
 }
