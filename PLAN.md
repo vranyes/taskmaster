@@ -37,10 +37,11 @@ Voice model → `perform_task({task})` → taskmaster → downstream model
   delegation acts as — stays a token: the per-delegation edge JWT below.
   Transport identity and caller identity are separate mechanisms,
   deliberately.
-- REQUIRED (open): no NetworkPolicies exist yet for the taskmaster,
-  voice-enroll, or voice-bridge namespaces, so the boundary above is
-  declared but not enforced. Write them before relying on this section.
-  Until then, `?reveal=key` is reachable by any in-cluster pod.
+- Enforced by: `network-policy.yaml` in each of the taskmaster,
+  voice-enroll and voice-bridge gitops apps (plus Cilium toFQDN egress
+  for vendor HTTPS), following apps/music/network-policies. Verify after
+  rollout with a live delegated call and by confirming no unexpected
+  `Policy denied` drops in Cilium logs.
 - Edge→gateway: per-call short-lived JWT minted by voice-bridge
   (sub = phone/user, aud = taskmaster, exp minutes), verified by
   taskmaster. Replaces the static `TASKMASTER_TOKEN` idea: a shared
