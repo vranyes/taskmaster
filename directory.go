@@ -12,7 +12,6 @@ import (
 
 type HTTPDirectory struct {
 	BaseURL string
-	Secret  string
 	HTTP    *http.Client
 }
 
@@ -27,7 +26,8 @@ func (d *HTTPDirectory) ResolveKey(ctx context.Context, phone string) (string, s
 	if err != nil {
 		return "", "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+d.Secret)
+	// No bearer by design: in-cluster transport trusts NetworkPolicy,
+	// not tokens. Key material is gated by network identity.
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", "", err

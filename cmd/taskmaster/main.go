@@ -9,13 +9,16 @@ import (
 
 func main() {
 	cfg := taskmaster.LoadConfig()
-	if cfg.EdgeSecret == "" || cfg.ResolveSecret == "" {
-		log.Fatal("missing TASKMASTER_EDGE_SECRET or TASKMASTER_RESOLVE_SECRET: refusing to serve unauthenticated")
+	// No resolve bearer by design: in-cluster transport trusts
+	// NetworkPolicy, not tokens. The edge JWT gate stays — caller
+	// identity is not transport auth.
+	if cfg.EdgeSecret == "" {
+		log.Fatal("missing TASKMASTER_EDGE_SECRET: refusing to serve unauthenticated")
 	}
 	h := &taskmaster.AuthHandler{
 		EdgeSecret: []byte(cfg.EdgeSecret),
 		Directory: &taskmaster.HTTPDirectory{
-			BaseURL: cfg.DirectoryURL, Secret: cfg.ResolveSecret, HTTP: &http.Client{},
+			BaseURL: cfg.DirectoryURL, HTTP: &http.Client{},
 		},
 		NewCaller: func(apiKey string) taskmaster.DownstreamCaller {
 			return &taskmaster.OpenAICaller{
