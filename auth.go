@@ -17,9 +17,13 @@ import (
 const edgeAudience = "taskmaster"
 
 type EdgeClaims struct {
-	UserSub   string
-	Phone     string
-	CallID    string
+	UserSub string
+	Phone   string
+	CallID  string
+	// JTI is a unique nonce per mint, not per call: one call may
+	// delegate several tasks, each with its own token. Replay
+	// protection keys on JTI; CallID stays as the audit claim.
+	JTI       string
 	ExpiresAt time.Time
 }
 
@@ -27,13 +31,20 @@ type EdgeIdentity struct {
 	UserSub string
 	Phone   string
 	CallID  string
+	JTI     string
 }
 
 func MintEdgeToken(secret []byte, c EdgeClaims) (string, error) {
+	// Fail closed: without a caller-supplied nonce two mints over
+	// identical claims produce byte-identical tokens, and the
+	// replay window becomes the expiry instead of one use.
+	if c.JTI == "" {
+		return "", errors.New("deny: empty jti")
+	}
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	payload, err := json.Marshal(map[string]any{
-		"sub": c.UserSub, "phone": c.Phone, "jti": c.CallID,
-		"aud": edgeAudience, "exp": c.ExpiresAt.Unix(),
+		"sub": c.UserSub, "phone": c.Phone, "jti": c.JTI,
+		"call_id": c.CallID, "aud": edgeAudience, "exp": c.ExpiresAt.Unix(),
 	})
 	if err != nil {
 		return "", err
@@ -61,22 +72,23 @@ func VerifyEdgeToken(secret []byte, tok string) (EdgeIdentity, error) {
 		return EdgeIdentity{}, errors.New("deny")
 	}
 	var p struct {
-		Sub   string `json:"sub"`
-		Phone string `json:"phone"`
-		Jti   string `json:"jti"`
-		Aud   string `json:"aud"`
-		Exp   int64  `json:"exp"`
+		Sub    string `json:"sub"`
+		Phone  string `json:"phone"`
+		Jti    string `json:"jti"`
+		CallID string `json:"call_id"`
+		Aud    string `json:"aud"`
+		Exp    int64  `json:"exp"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return EdgeIdentity{}, errors.New("deny")
 	}
-	if p.Aud != edgeAudience || p.Sub == "" || p.Jti == "" {
+	if p.Aud != edgeAudience || p.Sub == "" || p.Jti == "" || p.CallID == "" {
 		return EdgeIdentity{}, errors.New("deny")
 	}
 	if time.Now().Unix() > p.Exp {
 		return EdgeIdentity{}, errors.New("deny")
 	}
-	return EdgeIdentity{UserSub: p.Sub, Phone: p.Phone, CallID: p.Jti}, nil
+	return EdgeIdentity{UserSub: p.Sub, Phone: p.Phone, CallID: p.CallID, JTI: p.Jti}, nil
 }
 
 type Directory interface {
@@ -120,11 +132,13 @@ func (h *AuthHandler) PerformTask(ctx context.Context, edgeToken, task string) (
 			delete(h.seen, jti)
 		}
 	}
-	if exp, ok := h.seen[id.CallID]; ok && exp.After(now) {
+	// Single-use binds the nonce, not the call: one call may mint
+	// several tokens (one per delegation), each usable once.
+	if exp, ok := h.seen[id.JTI]; ok && exp.After(now) {
 		h.mu.Unlock()
 		return "", errors.New("deny")
 	}
-	h.seen[id.CallID] = now.Add(10 * time.Minute)
+	h.seen[id.JTI] = now.Add(10 * time.Minute)
 	h.mu.Unlock()
 	sub, key, err := h.Directory.ResolveKey(ctx, id.Phone)
 	if err != nil {

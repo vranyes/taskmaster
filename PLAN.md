@@ -32,9 +32,12 @@ Voice model → `perform_task({task})` → taskmaster → downstream model
   taskmaster. Replaces the static `TASKMASTER_TOKEN` idea: a shared
   secret cannot bind a call to a user.
   Contract (implemented verify side): HS256, claims
-  sub/phone/jti/aud=`taskmaster`/exp; jti = call_id, single-use;
-  tool input carries it as `edge_token`. Mint side (voice-bridge)
-  must match this exactly.
+  sub/phone/jti/aud=`taskmaster`/exp plus `call_id` (audit claim);
+  jti is a unique nonce **per mint, not per call** — one call may
+  delegate several tasks, each with its own single-use token, and
+  replay protection keys on jti. `call_id` stays as the audit
+  trail. Tool input carries the token as `edge_token`. Mint side
+  (voice-bridge) must match this exactly.
 - Gateway→LibreChat: per-user Remote Agents API key looked up by
   caller phone number. Chat completions `model` = voice agent ID.
   LibreChat v0.8.8 has no impersonation or run-as; key identity

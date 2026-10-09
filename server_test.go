@@ -162,7 +162,7 @@ func testAuthHandler() (*AuthHandler, string) {
 	}
 	tok, err := MintEdgeToken(secret, EdgeClaims{
 		UserSub: "kanidm-sub-1", Phone: "+15550109999",
-		CallID: "call-mcp-1", ExpiresAt: time.Now().Add(time.Hour),
+		CallID: "call-mcp-1", JTI: "jti-mcp-1", ExpiresAt: time.Now().Add(time.Hour),
 	})
 	if err != nil {
 		panic(err)
