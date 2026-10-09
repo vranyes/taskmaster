@@ -60,3 +60,15 @@ Voice model → `perform_task({task})` → taskmaster → downstream model
 4. Live verify: on hold pending downstream endpoint.
 5. Handler auth: verify edge JWT, per-user key lookup, fail-closed.
 6. Enrollment service + Kanidm client + Telnyx OTP (separate).
+
+## Enrollment lives in its own service (decided)
+
+- New `voice-enroll` service, not LibreChat (not extensible),
+  not voice-bridge (call-path edge stays lean), not taskmaster
+  (one-tool principle + conflicting exposure).
+- Owns: public browser UI, PG directory
+  (`phone → {user sub, encrypted key}`), Telnyx SMS sending,
+  Kanidm enrollment-client secret, internal ClusterIP resolve API.
+- Least-privilege reads: edge gets `phone → user` (for JWT sub)
+  only; only taskmaster gets key material. Keys never rest in
+  the telephony layer. Taskmaster may cache briefly in-budget.
