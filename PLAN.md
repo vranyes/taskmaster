@@ -27,6 +27,20 @@ Voice model → `perform_task({task})` → taskmaster → downstream model
 
 ## Auth (decided)
 
+- Transport boundary: Kubernetes NetworkPolicy is the trust boundary for
+  all in-cluster service-to-service traffic — default-deny per namespace
+  with explicit ingress (apps/music/network-policies/ is the pattern).
+  No bearer tokens for transport auth in-cluster: the
+  RESOLVE_TASKMASTER_SECRET shared-secret design is dropped, superseded
+  by this rule, matching voice-enroll's existing no-bearer resolve
+  posture. What NetworkPolicy cannot express — *which caller* a
+  delegation acts as — stays a token: the per-delegation edge JWT below.
+  Transport identity and caller identity are separate mechanisms,
+  deliberately.
+- REQUIRED (open): no NetworkPolicies exist yet for the taskmaster,
+  voice-enroll, or voice-bridge namespaces, so the boundary above is
+  declared but not enforced. Write them before relying on this section.
+  Until then, `?reveal=key` is reachable by any in-cluster pod.
 - Edge→gateway: per-call short-lived JWT minted by voice-bridge
   (sub = phone/user, aud = taskmaster, exp minutes), verified by
   taskmaster. Replaces the static `TASKMASTER_TOKEN` idea: a shared
@@ -74,11 +88,13 @@ another user still executes as the JWT subject).
 - Admission: caller ID is assertable/spoofable. PIN-gate
   `perform_task` (VOICE_PIN precedent exists); check Telnyx
   STIR/SHAKEN attestation where available. Unknown number → deny.
-- Tokens: verify signature/aud/exp; bind jti to call_id,
-  single-use. Model sees no credentials, ever.
+- Tokens: verify signature/aud/exp; single-use binds the per-mint jti
+  nonce (call_id is the audit claim, not the replay key). Model sees
+  no credentials, ever.
 - Keys: AES-GCM at rest under sealed DEK; decrypt in taskmaster
   memory only; never logged; resolve API serves key material to
-  taskmaster identity only, user-id to edge only.
+  taskmaster pods only (NetworkPolicy ingress — no bearer, see the
+  transport rule), user-id to edge only.
 - LibreChat scoping is server-side (agent visibility, tool
   grants, per-user OAuth tools resolve to key owner). Verify
   agent memory is strictly per-user. Fresh conversation per
@@ -107,5 +123,6 @@ another user still executes as the JWT subject).
   (`phone → {user sub, encrypted key}`), Telnyx SMS sending,
   Kanidm enrollment-client secret, internal ClusterIP resolve API.
 - Least-privilege reads: edge gets `phone → user` (for JWT sub)
-  only; only taskmaster gets key material. Keys never rest in
+  only; only taskmaster pods get key material, by NetworkPolicy ingress
+  (no bearer — see the transport rule above). Keys never rest in
   the telephony layer. Taskmaster may cache briefly in-budget.
