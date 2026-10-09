@@ -1,0 +1,7 @@
+defaultBaseImage: cgr.dev/chainguard/static:latest
+builds:
+- id: taskmaster
+  dir: ./cmd/taskmaster
+  main: .
+  env:
+  - CGO_ENABLED=0
