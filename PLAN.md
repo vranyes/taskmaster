@@ -31,6 +31,10 @@ Voice model → `perform_task({task})` → taskmaster → downstream model
   (sub = phone/user, aud = taskmaster, exp minutes), verified by
   taskmaster. Replaces the static `TASKMASTER_TOKEN` idea: a shared
   secret cannot bind a call to a user.
+  Contract (implemented verify side): HS256, claims
+  sub/phone/jti/aud=`taskmaster`/exp; jti = call_id, single-use;
+  tool input carries it as `edge_token`. Mint side (voice-bridge)
+  must match this exactly.
 - Gateway→LibreChat: per-user Remote Agents API key looked up by
   caller phone number. Chat completions `model` = voice agent ID.
   LibreChat v0.8.8 has no impersonation or run-as; key identity
@@ -88,6 +92,7 @@ another user still executes as the JWT subject).
 3. MCP wiring for `perform_task`. (done, HTTP + 30s default)
 4. Live verify: on hold pending downstream endpoint.
 5. Handler auth: verify edge JWT, per-user key lookup, fail-closed.
+   (done: auth.go/directory.go, main refuses without secrets)
 6. Enrollment service + Kanidm client + Telnyx OTP (separate).
 
 ## Enrollment lives in its own service (decided)
