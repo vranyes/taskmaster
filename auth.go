@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -112,16 +113,64 @@ type AuthHandler struct {
 	EdgeSecret []byte
 	Directory  Directory
 	NewCaller  func(apiKey string) DownstreamCaller
+	Logger     *slog.Logger
 
 	mu   sync.Mutex
 	seen map[string]time.Time
 }
 
+func (h *AuthHandler) logger() *slog.Logger { return loggerOrDefault(h.Logger) }
+
 func (h *AuthHandler) PerformTask(ctx context.Context, edgeToken, task string) (string, error) {
+	base := h.logger()
+	log := logWithRequestID(base, ctx)
+	start := time.Now()
+	// Never log edgeToken, phone, keys, or task content — sizes and hashes only.
+	tokenBytes := len(edgeToken)
+	var tokenHash string
+	if edgeToken != "" {
+		tokenHash = HashForLog(edgeToken)
+	}
+	log.Debug("auth.request.start",
+		"task_bytes", len(task),
+		"token_bytes", tokenBytes,
+	)
 	id, err := VerifyEdgeToken(h.EdgeSecret, edgeToken)
 	if err != nil {
+		attrs := []any{
+			"reason", "verify_failed",
+			"task_bytes", len(task),
+			"token_bytes", tokenBytes,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"error", err.Error(),
+		}
+		if tokenHash != "" {
+			attrs = append(attrs, "token_hash", tokenHash)
+		}
+		log.Warn("auth.edge_token.invalid", attrs...)
 		return "", err
 	}
+	attrs := []any{
+		"user_sub_hash", HashForLog(id.UserSub),
+		"phone_hash", HashForLog(id.Phone),
+		"call_id", id.CallID,
+		"jti_hash", HashForLog(id.JTI),
+		"task_bytes", len(task),
+		"token_hash", HashForLog(edgeToken),
+	}
+	log.Debug("auth.edge_token.verified", attrs...)
+	// Identity-enriched loggers. reqLog is for auth's own span logs;
+	// downstreamLog is identity-only (no request_id): HandlePerformTask-
+	// WithLogger tags request_id from ctx itself, so passing a pre-tagged
+	// logger would emit duplicate request_id keys.
+	identity := base.With(
+		"user_sub_hash", HashForLog(id.UserSub),
+		"phone_hash", HashForLog(id.Phone),
+		"call_id", id.CallID,
+		"jti_hash", HashForLog(id.JTI),
+	)
+	log = logWithRequestID(identity, ctx)
+	downstreamLog := identity
 	now := time.Now()
 	h.mu.Lock()
 	if h.seen == nil {
@@ -136,16 +185,52 @@ func (h *AuthHandler) PerformTask(ctx context.Context, edgeToken, task string) (
 	// several tokens (one per delegation), each usable once.
 	if exp, ok := h.seen[id.JTI]; ok && exp.After(now) {
 		h.mu.Unlock()
+		log.Warn("auth.edge_token.replay",
+			"task_bytes", len(task),
+			"reason", "replay",
+		)
 		return "", errors.New("deny")
 	}
 	h.seen[id.JTI] = now.Add(10 * time.Minute)
 	h.mu.Unlock()
+	dirStart := time.Now()
+	log.Debug("auth.directory.start", "task_bytes", len(task))
 	sub, key, err := h.Directory.ResolveKey(ctx, id.Phone)
 	if err != nil {
+		log.Warn("auth.directory.error",
+			"task_bytes", len(task),
+			"duration_ms", time.Since(start).Milliseconds(),
+			"directory_ms", time.Since(dirStart).Milliseconds(),
+			"error", err.Error(),
+		)
 		return "", fmt.Errorf("deny: %w", err)
 	}
 	if sub != id.UserSub || key == "" {
+		log.Warn("auth.directory.mismatch",
+			"task_bytes", len(task),
+			"duration_ms", time.Since(start).Milliseconds(),
+			"directory_ms", time.Since(dirStart).Milliseconds(),
+			"reason", "sub_mismatch_or_empty_key",
+		)
 		return "", errors.New("deny")
 	}
-	return HandlePerformTask(ctx, h.NewCaller(key), task)
+	log.Debug("auth.directory.resolved",
+		"directory_ms", time.Since(dirStart).Milliseconds(),
+	)
+	log.Debug("auth.downstream.start", "task_bytes", len(task))
+	result, err := HandlePerformTaskWithLogger(ctx, downstreamLog, h.NewCaller(key), task)
+	if err != nil {
+		log.Warn("auth.perform_task.error",
+			"task_bytes", len(task),
+			"duration_ms", time.Since(start).Milliseconds(),
+			"error", err.Error(),
+		)
+		return "", err
+	}
+	log.Info("auth.perform_task.done",
+		"task_bytes", len(task),
+		"result_bytes", len(result),
+		"duration_ms", time.Since(start).Milliseconds(),
+	)
+	return result, nil
 }
