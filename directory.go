@@ -59,9 +59,8 @@ func (d *HTTPDirectory) ResolveKey(ctx context.Context, phone string) (string, s
 		return "", "", fmt.Errorf("directory deny: status %d", resp.StatusCode)
 	}
 	var out struct {
-		UserSub     string `json:"user_sub"`
-		APIKey      string `json:"api_key"`
-		AccessToken string `json:"access_token"`
+		UserSub string `json:"user_sub"`
+		APIKey  string `json:"api_key"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		log.Warn("directory.decode_failed",
@@ -72,16 +71,7 @@ func (d *HTTPDirectory) ResolveKey(ctx context.Context, phone string) (string, s
 		)
 		return "", "", err
 	}
-	// Dual-auth: the directory serves the OAuth bearer when the user granted
-	// via Kanidm login and the PAT otherwise. Prefer the OAuth bearer: it is
-	// short-lived and refresh-managed, while the PAT is the long-lived
-	// fallback. Either way the caller only ever sees one opaque bearer.
-	bearer := out.AccessToken
-	bearerKind := "oauth"
-	if bearer == "" {
-		bearer, bearerKind = out.APIKey, "pat"
-	}
-	if out.UserSub == "" || bearer == "" {
+	if out.UserSub == "" || out.APIKey == "" {
 		log.Warn("directory.resolve.incomplete",
 			"phone_hash", phoneHash,
 			"duration_ms", time.Since(start).Milliseconds(),
@@ -91,8 +81,7 @@ func (d *HTTPDirectory) ResolveKey(ctx context.Context, phone string) (string, s
 	log.Info("directory.resolve.done",
 		"phone_hash", phoneHash,
 		"user_sub_hash", HashForLog(out.UserSub),
-		"bearer_kind", bearerKind,
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
-	return out.UserSub, bearer, nil
+	return out.UserSub, out.APIKey, nil
 }

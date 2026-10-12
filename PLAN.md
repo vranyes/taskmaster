@@ -68,6 +68,11 @@ Voice model → `perform_task({task})` → taskmaster → downstream model
   kanidm/kanidm#4034 open): no live user token exists over PSTN,
   so the OIDC-bearer phone path is impossible. Revisit if that
   ever ships (Kanidm currently floats `:latest`).
+- OAuth-bearer spike (2026-10-12, reverted in voice-enroll): even with live
+  Kanidm tokens, LibreChat v0.8.8 `remoteApi.auth.oidc` binds users to the
+  token issuer while Kanidm mints per-client issuers, so cross-client
+  bearers 401 with "valid but no matching user". Per-user PATs stay the
+  supported path; see voice-enroll OPERATOR.md.
 - Fallback if per-user is too much: single voice-agent identity.
   Breaks per-user downstream tools (e.g. IMAP OAuth mailboxes).
 - Headless calls need explicit `toolApproval` allows: deny/ask

@@ -4,18 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 )
-
-// ErrDownstreamUnauthorized marks a downstream 401: the bearer died between
-// resolve and use (OAuth rotation/expiry) or was revoked. The auth layer
-// re-resolves once and retries; anything else fails closed without retry.
-var ErrDownstreamUnauthorized = errors.New("downstream unauthorized")
 
 type OpenAICaller struct {
 	BaseURL string
@@ -70,15 +64,6 @@ func (c *OpenAICaller) PerformTask(ctx context.Context, task string) (string, er
 		return "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized {
-		log.Warn("downstream.request.unauthorized",
-			"model", c.Model,
-			"task_bytes", len(task),
-			"status", resp.StatusCode,
-			"duration_ms", time.Since(start).Milliseconds(),
-		)
-		return "", fmt.Errorf("downstream status %d: %w", resp.StatusCode, ErrDownstreamUnauthorized)
-	}
 	if resp.StatusCode != http.StatusOK {
 		log.Warn("downstream.request.bad_status",
 			"model", c.Model,
