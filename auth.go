@@ -219,6 +219,22 @@ func (h *AuthHandler) PerformTask(ctx context.Context, edgeToken, task string) (
 	)
 	log.Debug("auth.downstream.start", "task_bytes", len(task))
 	result, err := HandlePerformTaskWithLogger(ctx, downstreamLog, h.NewCaller(key), task)
+	if err != nil && errors.Is(err, ErrDownstreamUnauthorized) {
+		// The bearer died between resolve and use (OAuth rotation) or was
+		// revoked: one fresh resolve, and retry only when the directory
+		// hands back a different bearer (a rotated OAuth token). A repeat
+		// of the same bearer — e.g. a revoked PAT — fails closed without
+		// another downstream call.
+		log.Debug("auth.downstream.unauthorized",
+			"task_bytes", len(task),
+		)
+		if sub2, key2, rerr := h.Directory.ResolveKey(ctx, id.Phone); rerr == nil && sub2 == id.UserSub && key2 != "" && key2 != key {
+			log.Debug("auth.downstream.retry",
+				"task_bytes", len(task),
+			)
+			result, err = HandlePerformTaskWithLogger(ctx, downstreamLog, h.NewCaller(key2), task)
+		}
+	}
 	if err != nil {
 		log.Warn("auth.perform_task.error",
 			"task_bytes", len(task),
